@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>GitHub Notes Organizer</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="drag-handle">
+      <span class="drag-icon">⋮⋮</span>
+      <h2>Save to GitHub</h2>
+      <button id="closeButton" class="close-button">✕</button>
+    </div>
+    
+    <div class="github-settings">
+      <button id="toggleSettings" class="link-button">
+        <span class="gear-icon">⚙</span> GitHub Settings
+      </button>
+      
+      <div id="settingsPanel" class="settings-panel hidden">
+        <input type="password" id="githubToken" placeholder="GitHub Personal Access Token">
+        <input type="text" id="repoOwner" placeholder="Repository Owner">
+        <input type="text" id="repoName" placeholder="Repository Name">
+        <div class="remember-me">
+          <input type="checkbox" id="rememberMe" checked>
+          <label for="rememberMe">Remember these settings</label>
+        </div>
+        <button id="saveSettings" class="secondary-button">Save Settings</button>
+      </div>
+    </div>
+
+    <div class="capture-buttons">
+      <button id="screenshotButton" class="secondary-button">
+        <span class="camera-icon">📸</span> Take Screenshot
+      </button>
+      <div class="drop-zone" id="dropZone">
+        <div class="drop-zone-text">
+          Drop images here or click to upload
+          <input type="file" id="fileInput" accept="image/*" multiple style="display: none;">
+        </div>
+      </div>
+    </div>
+
+    <textarea id="selectedText" class="text-content" placeholder="Selected text will appear here. You can edit it."></textarea>
+    
+    <div id="screenshotPreview" class="screenshot-preview hidden">
+      <img id="screenshotImage" alt="Screenshot preview">
+      <button id="removeScreenshot" class="icon-button">❌</button>
+    </div>
+    
+    <div class="category-section">
+      <label for="category">Select Category:</label>
+      <select id="category">
+        <option value="">Choose a category...</option>
+        <option value="Sport">Sport</option>
+        <option value="AI">AI</option>
+        <option value="Medical">Medical</option>
+        <option value="Personal">Personal</option>
+        <option value="Travel">Travel</option>
+        <option value="Home Interior">Home Interior</option>
+        <option value="Family">Family</option>
+        <option value="Office">Office</option>
+        <option value="Blogs">Blogs</option>
+        <option value="History">History</option>
+        <option value="School">School</option>
+        <option value="Devops">Devops</option>
+        <option value="Careers">Careers</option>
+        <option value="Friends">Friends</option>
+        <option value="Jokes">Jokes</option>
+        <option value="Movies">Movies</option>
+      </select>
+      
+      <div class="new-category">
+        <input type="text" id="newCategory" placeholder="Or create new category">
+      </div>
+    </div>
+
+    <div class="action-buttons">
+      <button id="saveButton" class="primary-button">Save to GitHub</button>
+    </div>
+
+    <div id="status" class="status"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html> 
