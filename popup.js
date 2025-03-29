@@ -63,6 +63,7 @@ const generateKey = async () => {
 
 // UI State Management
 let githubToken = '';
+let aiApiKey = '';
 let settings = {
   repoOwner: '',
   repoName: '',
@@ -80,6 +81,9 @@ let initialY;
 let xOffset = 20;
 let yOffset = 20;
 let uploadedImages = [];
+let isSummarizing = false;
+let speechSynthesis = window.speechSynthesis;
+let speechUtterance = null;
 
 // Initialize UI
 document.addEventListener('DOMContentLoaded', async () => {
@@ -124,6 +128,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load saved settings
   const savedSettings = await chrome.storage.sync.get([
     'encryptedToken',
+    'encryptedApiKey',
     'repoOwner',
     'repoName',
     'rememberMe'
@@ -132,6 +137,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (savedSettings.encryptedToken) {
     githubToken = await decryptToken(savedSettings.encryptedToken);
     document.getElementById('githubToken').value = '••••••••••••••••';
+  }
+
+  if (savedSettings.encryptedApiKey) {
+    aiApiKey = await decryptToken(savedSettings.encryptedApiKey);
+    document.getElementById('aiApiKey').value = '••••••••••••••••';
   }
 
   if (savedSettings.repoOwner) {
@@ -179,6 +189,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (githubToken && settings.repoOwner && settings.repoName) {
     await updateCategoryList();
   }
+
+  // Add this after your DOMContentLoaded event listener
+  document.getElementById('summarizeCategory').addEventListener('click', summarizeCategory);
+  document.getElementById('closeSummary').addEventListener('click', () => {
+    stopSpeaking();
+    document.getElementById('summaryPanel').classList.add('hidden');
+  });
+
+  // Add speech control handlers
+  document.getElementById('speakSummary').addEventListener('click', speakSummary);
+  document.getElementById('stopSpeaking').addEventListener('click', stopSpeaking);
+
+  // Add this to your DOMContentLoaded event listener
+  document.getElementById('regenerateTitlesAndTags').addEventListener('click', async () => {
+    const category = document.getElementById('category').value;
+    if (!category) {
+      showStatus('Please select a category first', 'error');
+      return;
+    }
+    
+    await regenerateTitlesAndTags(category);
+  });
 });
 
 function startDragging(e) {
@@ -212,7 +244,9 @@ function stopDragging() {
 // Save GitHub settings
 async function saveGithubSettings() {
   const tokenInput = document.getElementById('githubToken');
+  const apiKeyInput = document.getElementById('aiApiKey');
   const newToken = tokenInput.value;
+  const newApiKey = apiKeyInput.value;
   
   if (newToken && newToken !== '••••••••••••••••') {
     githubToken = newToken;
@@ -221,6 +255,15 @@ async function saveGithubSettings() {
       await chrome.storage.sync.set({ encryptedToken });
     }
     tokenInput.value = '••••••••••••••••';
+  }
+
+  if (newApiKey && newApiKey !== '••••••••••••••••') {
+    aiApiKey = newApiKey;
+    if (document.getElementById('rememberMe').checked) {
+      const encryptedApiKey = await encryptToken(newApiKey);
+      await chrome.storage.sync.set({ encryptedApiKey });
+    }
+    apiKeyInput.value = '••••••••••••••••';
   }
 
   settings = {
@@ -232,7 +275,7 @@ async function saveGithubSettings() {
   if (settings.rememberMe) {
     await chrome.storage.sync.set(settings);
   } else {
-    await chrome.storage.sync.remove(['encryptedToken', 'repoOwner', 'repoName', 'rememberMe']);
+    await chrome.storage.sync.remove(['encryptedToken', 'encryptedApiKey', 'repoOwner', 'repoName', 'rememberMe']);
   }
 
   document.getElementById('settingsPanel').classList.add('hidden');
@@ -277,7 +320,67 @@ async function getSourceUrl() {
   }
 }
 
-// Update the save button click handler
+// Add this new function to generate titles and tags
+async function generateTitleAndTags(content) {
+  if (!aiApiKey) {
+    throw new Error('Please configure Google AI API Key in settings');
+  }
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${aiApiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: `For the following content, please provide:
+            1. A concise, descriptive title (max 60 characters)
+            2. 3-5 relevant tags
+            Format the response exactly like this:
+            Title: [your title here]
+            Tags: #tag1 #tag2 #tag3
+
+            Content:
+            ${content}`
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 256
+        }
+      })
+    });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(`AI API failed: ${result.error?.message || 'Unknown error'}`);
+    }
+
+    if (result.candidates?.[0]?.content?.parts?.[0]) {
+      const aiResponse = result.candidates[0].content.parts[0].text;
+      const titleMatch = aiResponse.match(/Title: (.*)/);
+      const tagsMatch = aiResponse.match(/Tags: (.*)/);
+
+      return {
+        title: titleMatch ? titleMatch[1].trim() : 'Untitled Note',
+        tags: tagsMatch ? tagsMatch[1].trim() : '#untagged'
+      };
+    }
+
+    throw new Error('Invalid response format from AI API');
+  } catch (error) {
+    console.error('AI title/tags generation error:', error);
+    return {
+      title: 'Untitled Note',
+      tags: '#untagged'
+    };
+  }
+}
+
+// Update the save button click handler to include title and tags
 document.getElementById('saveButton').addEventListener('click', async () => {
   if (!githubToken) {
     showStatus('Please configure GitHub settings first', 'error');
@@ -300,6 +403,9 @@ document.getElementById('saveButton').addEventListener('click', async () => {
 
   try {
     showStatus('Saving...', 'info');
+    
+    // Generate title and tags before saving
+    const { title, tags } = await generateTitleAndTags(textToSave);
     
     // Get source URL directly from tabs API
     const sourceUrl = await getSourceUrl();
@@ -386,13 +492,12 @@ document.getElementById('saveButton').addEventListener('click', async () => {
       }
     }
 
-    // Prepare content with text, images, and source - move this after all uploads
+    // Prepare content with text, images, source, and timestamp
     const imageContent = imageUrls.join('');
-    // Make sure we add the source link
     const sourceLink = sourceUrl ? `\n\n[Source](${sourceUrl})` : '';
-    console.log('Source link to be added:', sourceLink); // Debug log
+    const timestamp = new Date().toLocaleString();
     
-    const newEntry = `${textToSave}${imageContent}${sourceLink}\n\n---\n\n`;
+    const newEntry = `## ${title}\n\n${tags}\n\n${textToSave}${imageContent}${sourceLink}\n\n*${timestamp}*\n\n---\n\n`;
     console.log('New entry to be saved:', newEntry); // Debug log
     const newContent = existingContent ? `${existingContent}${newEntry}` : newEntry;
 
@@ -625,5 +730,243 @@ function decodeContent(base64Content) {
   } catch (error) {
     console.error('Decoding error:', error);
     throw new Error('Failed to decode content properly');
+  }
+}
+
+// Add these new functions
+async function summarizeCategory() {
+  if (isSummarizing) return;
+  
+  // Stop any ongoing speech
+  stopSpeaking();
+  
+  const category = document.getElementById('category').value;
+  if (!category) {
+    showStatus('Please select a category to summarize', 'error');
+    return;
+  }
+
+  try {
+    isSummarizing = true;
+    showStatus('Generating summary...', 'info');
+    
+    // Get category content
+    const content = await getCategoryContent(category);
+    if (!content) {
+      showStatus('No content found in this category', 'error');
+      return;
+    }
+
+    // Generate summary using Google AI
+    const summary = await generateSummary(content);
+    
+    // Show summary
+    const summaryPanel = document.getElementById('summaryPanel');
+    const summaryContent = document.getElementById('summaryContent');
+    summaryContent.textContent = summary;
+    summaryPanel.classList.remove('hidden');
+    
+    showStatus('Summary generated successfully!', 'success');
+  } catch (error) {
+    console.error('Summarization error:', error);
+    showStatus(`Summarization failed: ${error.message}`, 'error');
+  } finally {
+    isSummarizing = false;
+  }
+}
+
+async function getCategoryContent(category) {
+  try {
+    const fileName = `${category}/notes.md`;
+    const response = await fetch(
+      `https://api.github.com/repos/${settings.repoOwner}/${settings.repoName}/contents/${fileName}`,
+      {
+        headers: {
+          'Authorization': `token ${githubToken}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      }
+    );
+
+    if (response.ok) {
+      const data = await response.json();
+      return decodeContent(data.content);
+    }
+    return null;
+  } catch (error) {
+    console.error('Error fetching category content:', error);
+    return null;
+  }
+}
+
+async function generateSummary(content) {
+  if (!aiApiKey) {
+    throw new Error('Please configure Google AI API Key in settings');
+  }
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${aiApiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: `Please provide a concise summary of the following notes:\n\n${content}\n\nFocus on key points and main themes. Format the summary in bullet points.`
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1024
+        }
+      })
+    });
+
+    const result = await response.json();
+    console.log('AI API Response:', result); // Debug log
+
+    if (!response.ok) {
+      throw new Error(`AI API failed: ${result.error?.message || 'Unknown error'}`);
+    }
+
+    // Handle the response based on the API structure
+    if (result.candidates && 
+        result.candidates[0] && 
+        result.candidates[0].content && 
+        result.candidates[0].content.parts && 
+        result.candidates[0].content.parts[0]) {
+      return result.candidates[0].content.parts[0].text;
+    } else {
+      throw new Error('Invalid response format from AI API');
+    }
+  } catch (error) {
+    console.error('AI API error:', error);
+    throw new Error(`Failed to generate summary: ${error.message}`);
+  }
+}
+
+// Add these new functions for speech handling
+function speakSummary() {
+  const summaryText = document.getElementById('summaryContent').textContent;
+  if (!summaryText) return;
+
+  // Stop any ongoing speech
+  stopSpeaking();
+
+  // Create new utterance
+  speechUtterance = new SpeechSynthesisUtterance(summaryText);
+  
+  // Configure speech options
+  speechUtterance.rate = 1.0; // Speed of speech (0.1 to 10)
+  speechUtterance.pitch = 1.0; // Pitch of voice (0 to 2)
+  speechUtterance.volume = 1.0; // Volume (0 to 1)
+
+  // Get available voices and set a good one if available
+  const voices = speechSynthesis.getVoices();
+  const preferredVoice = voices.find(voice => 
+    voice.lang.startsWith('en') && voice.name.includes('Google') ||
+    voice.name.includes('Natural')
+  );
+  if (preferredVoice) {
+    speechUtterance.voice = preferredVoice;
+  }
+
+  // Add event handlers
+  speechUtterance.onstart = () => {
+    document.getElementById('speakSummary').classList.add('hidden');
+    document.getElementById('stopSpeaking').classList.remove('hidden');
+  };
+
+  speechUtterance.onend = () => {
+    document.getElementById('speakSummary').classList.remove('hidden');
+    document.getElementById('stopSpeaking').classList.add('hidden');
+  };
+
+  // Start speaking
+  speechSynthesis.speak(speechUtterance);
+}
+
+function stopSpeaking() {
+  if (speechSynthesis.speaking) {
+    speechSynthesis.cancel();
+  }
+  document.getElementById('speakSummary').classList.remove('hidden');
+  document.getElementById('stopSpeaking').classList.add('hidden');
+}
+
+// Add this new function to regenerate titles and tags for a category
+async function regenerateTitlesAndTags(category) {
+  try {
+    const content = await getCategoryContent(category);
+    if (!content) return;
+
+    // Split content into individual notes
+    const notes = content.split('---').filter(note => note.trim());
+    
+    let newContent = '';
+    
+    // Process each note
+    for (const note of notes) {
+      // Extract the main content (excluding existing title and tags)
+      const mainContent = note.replace(/^##.*\n\n#.*\n\n/, '').trim();
+      
+      // Generate new title and tags
+      const { title, tags } = await generateTitleAndTags(mainContent);
+      
+      // Reconstruct the note with new title and tags
+      newContent += `## ${title}\n\n${tags}\n\n${mainContent}\n\n---\n\n`;
+    }
+
+    // Save the updated content
+    const fileName = `${category}/notes.md`;
+    const response = await fetch(
+      `https://api.github.com/repos/${settings.repoOwner}/${settings.repoName}/contents/${fileName}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `token ${githubToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: `Updated titles and tags in ${category}`,
+          content: encodeContent(newContent),
+          sha: (await getFileSha(fileName)),
+          branch: 'main'
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to update titles and tags');
+    }
+
+    showStatus('Titles and tags updated successfully!', 'success');
+  } catch (error) {
+    console.error('Error regenerating titles and tags:', error);
+    showStatus('Failed to update titles and tags', 'error');
+  }
+}
+
+// Helper function to get file SHA
+async function getFileSha(fileName) {
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${settings.repoOwner}/${settings.repoName}/contents/${fileName}`,
+      {
+        headers: {
+          'Authorization': `token ${githubToken}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      }
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      return data.sha;
+    }
+    return null;
+  } catch (error) {
+    return null;
   }
 } 

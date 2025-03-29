@@ -11,6 +11,7 @@
   ],
   "host_permissions": [
     "https://api.github.com/*",
+    "https://generativelanguage.googleapis.com/*",
     "<all_urls>"
   ],
   "action": {

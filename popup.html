@@ -21,6 +21,7 @@
       
       <div id="settingsPanel" class="settings-panel hidden">
         <input type="password" id="githubToken" placeholder="GitHub Personal Access Token">
+        <input type="password" id="aiApiKey" placeholder="Google AI API Key">
         <input type="text" id="repoOwner" placeholder="Repository Owner">
         <input type="text" id="repoName" placeholder="Repository Name">
         <div class="remember-me">
@@ -72,8 +73,31 @@
         <option value="Movies">Movies</option>
       </select>
       
+      <div class="category-actions">
+        <button id="summarizeCategory" class="secondary-button">
+          <span class="ai-icon">🤖</span> Summarize Category
+        </button>
+        <button id="regenerateTitlesAndTags" class="secondary-button">
+          <span class="ai-icon">🏷️</span> Regenerate Titles & Tags
+        </button>
+      </div>
+      
       <div class="new-category">
         <input type="text" id="newCategory" placeholder="Or create new category">
+      </div>
+    </div>
+
+    <div id="summaryPanel" class="summary-panel hidden">
+      <h3>Category Summary</h3>
+      <div id="summaryContent" class="summary-content"></div>
+      <div class="summary-actions">
+        <button id="speakSummary" class="secondary-button">
+          <span class="speak-icon">🔊</span> Read Summary
+        </button>
+        <button id="stopSpeaking" class="secondary-button hidden">
+          <span class="stop-icon">🔇</span> Stop Reading
+        </button>
+        <button id="closeSummary" class="close-button">✕</button>
       </div>
     </div>
 
